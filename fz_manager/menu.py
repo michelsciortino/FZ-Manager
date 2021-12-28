@@ -1,20 +1,17 @@
 from typing import Callable
 import questionary
-import os
-
+from utils import cls
 from questionary import Choice
 
 
-def cls():
-    os.system('cls' if os.name == 'nt' else 'clear')
-
-
 class MenuEntry:
-    def __init__(self, name: str, callback: Callable = None, pre_selected: bool = False, ext_index: (int | str) = None):
+    def __init__(self, name: str, callback: Callable = None, pre_selected: bool = False, ext_index: (int | str) = None,
+                 condition=lambda: True):
         self.name = name
         self.callback = callback
         self.pre_selected = pre_selected
         self.ext_index = ext_index
+        self.condition = condition
 
 
 class ActionMenu:
@@ -24,20 +21,20 @@ class ActionMenu:
         self.cls = clear_screen
         self.ext = exit_entry
 
-    def show(self) -> None:
+    async def show(self) -> None:
         while True:
             self.cls and cls()
-            choice = questionary.select(
+            choice = await questionary.select(
                 self.title,
-                [Choice(e.name, e) for e in self.entries],
+                [Choice(e.name, e) for e in self.entries if e.condition()],
                 qmark='',
                 instruction=' '
-            ).ask()
+            ).ask_async(patch_stdout=True)
 
             if choice is None:
                 break
 
-            choice.callback and choice.callback()
+            choice.callback and await choice.callback()
 
             if isinstance(self.ext, str) and self.ext == choice.name:
                 break
@@ -52,22 +49,22 @@ class SelectMenu:
         self.multi = multi_select
         self.cls = clear_screen
 
-    def show(self) -> (MenuEntry | tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None]):
+    async def show(self) -> (MenuEntry | tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None]):
         self.cls and cls()
 
         if not self.multi:
-            return questionary.select(
+            return await questionary.select(
                 message=self.title,
-                choices=[Choice(e.name, e) for e in self.entries],
+                choices=[Choice(e.name, e) for e in self.entries if e.condition()],
                 qmark='',
                 instruction=' '
-            ).ask()
+            ).ask_async(patch_stdout=True)
 
-        choice = questionary.checkbox(
+        choice = await questionary.checkbox(
             message=self.title,
-            choices=[Choice(e.name, e, checked=e.pre_selected) for e in self.entries],
+            choices=[Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()],
             qmark=''
-        ).ask()
+        ).ask_async(patch_stdout=True)
 
         if choice is None:
             return None, None, None
@@ -75,12 +72,11 @@ class SelectMenu:
         if not self.multi:
             return self.entries[choice]
         else:
-            selected: list[MenuEntry] = []
+            selected: list[MenuEntry] = choice
             added: list[MenuEntry] = []
             removed: list[MenuEntry] = []
-            for i, entry in enumerate(self.entries):
-                if i in choice:
-                    selected.append(entry)
+            for entry in self.entries:
+                if entry in choice:
                     if not entry.pre_selected:
                         added.append(entry)
                 elif entry.pre_selected:
@@ -88,5 +84,5 @@ class SelectMenu:
             return selected, added, removed
 
 
-def show_message_menu(message):
-    return ActionMenu(message, [MenuEntry('Back')], 'Back').show()
+async def show_message_menu(message):
+    return await ActionMenu(message, [MenuEntry('Back')], 'Back').show()
