@@ -3,9 +3,16 @@ name = "FZ-Manager"
 version = "0.1.0"
 description = ""
 authors = ["michelsciortino <michel.sciortino@outlook.com>"]
+repository = "https://github.com/michelsciortino/FZ-Manager"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+simple-term-menu = "^1.4.1"
+requests = "^2.26.0"
+websockets = "^10.1"
+requests-toolbelt = "^0.9.1"
+rich = "^10.16.1"
+prompt-toolkit = "^3.0.24"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
