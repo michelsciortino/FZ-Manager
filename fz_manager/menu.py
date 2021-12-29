@@ -1,12 +1,19 @@
-from typing import Callable
+from typing import Callable, Optional
 import questionary
-from utils import cls
+from utils import Term, Colors
 from questionary import Choice
+
+MENU_HEADER = Colors.factorio('Factorio Zone Manager')
 
 
 class MenuEntry:
-    def __init__(self, name: str, callback: Callable = None, pre_selected: bool = False, ext_index: (int | str) = None,
-                 condition=lambda: True):
+    def __init__(self,
+                 name: str,
+                 callback: Callable = None,
+                 pre_selected: bool = False,
+                 ext_index: (int | str) = None,
+                 condition: Optional[Callable[[], bool]] = lambda: True
+                 ):
         self.name = name
         self.callback = callback
         self.pre_selected = pre_selected
@@ -15,18 +22,29 @@ class MenuEntry:
 
 
 class ActionMenu:
-    def __init__(self, title: str, entries: list[MenuEntry], exit_entry: str | list[str] = None, clear_screen: bool = False):
-        self.title = title
+    def __init__(self,
+                 message: str,
+                 entries: list[MenuEntry],
+                 exit_entry: str | list[str] = None,
+                 clear_screen: bool = False
+                 ):
+        self.message = message
         self.entries = entries
         self.cls = clear_screen
         self.ext = exit_entry
 
     async def show(self) -> None:
         while True:
-            self.cls and cls()
+            if self.cls:
+                Term.cls()
+                print(MENU_HEADER)
+
+            choices = [Choice(e.name, e) for e in self.entries if e.condition()]
+            if not len(choices):
+                return
             choice = await questionary.select(
-                self.title,
-                [Choice(e.name, e) for e in self.entries if e.condition()],
+                self.message,
+                choices,
                 qmark='',
                 instruction=' '
             ).ask_async(patch_stdout=True)
@@ -43,26 +61,39 @@ class ActionMenu:
 
 
 class SelectMenu:
-    def __init__(self, title: str, entries: list[MenuEntry], clear_screen: bool = False, multi_select: bool = False):
-        self.title = title
+    def __init__(self,
+                 message: str,
+                 entries: list[MenuEntry],
+                 clear_screen: bool = False,
+                 multi_select: bool = False
+                 ):
+        self.message = message
         self.entries = entries
         self.multi = multi_select
         self.cls = clear_screen
 
-    async def show(self) -> (MenuEntry | tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None]):
-        self.cls and cls()
-
+    async def show(self) -> (MenuEntry | tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None] | None):
+        if self.cls:
+            Term.cls()
+            print(MENU_HEADER)
         if not self.multi:
+            choices = [Choice(e.name, e) for e in self.entries if e.condition()]
+            if not len(choices):
+                return None
             return await questionary.select(
-                message=self.title,
-                choices=[Choice(e.name, e) for e in self.entries if e.condition()],
+                message=self.message,
+                choices=choices,
                 qmark='',
                 instruction=' '
             ).ask_async(patch_stdout=True)
 
+        choices = [Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()]
+        if not len(choices):
+            return None, None, None
+
         choice = await questionary.checkbox(
-            message=self.title,
-            choices=[Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()],
+            message=self.message,
+            choices=choices,
             qmark=''
         ).ask_async(patch_stdout=True)
 
@@ -84,5 +115,36 @@ class SelectMenu:
             return selected, added, removed
 
 
-async def show_message_menu(message):
-    return await ActionMenu(message, [MenuEntry('Back')], 'Back').show()
+class PathMenu:
+    def __init__(self,
+                 message: str,
+                 default: str = '',
+                 only_directories: bool = False,
+                 validator: Optional[Callable[[str], bool]] = lambda p: True,
+                 clear_screen: bool = False
+                 ):
+        self.message = message
+        self.cls = clear_screen
+        self.default = default
+        self.only_dirs = only_directories
+        self.validator = validator
+
+    async def show(self) -> str:
+        if self.cls:
+            Term.cls()
+            print(MENU_HEADER)
+        return await questionary.path(
+            message=self.message,
+            default=self.default,
+            qmark='',
+            only_directories=self.only_dirs,
+            validate=self.validator
+        ).ask_async(patch_stdout=True)
+
+
+class AlertMenu:
+    def __init__(self, message):
+        self.message = message
+
+    async def show(self):
+        return await ActionMenu(self.message, [MenuEntry('Back')], 'Back').show()

@@ -4,10 +4,11 @@ import re
 import json
 import zipfile
 import asyncio
+from aioconsole import ainput
 from rich.progress import Progress
 
-from fz_manager.utils import colorize, console_colors
-from menu import ActionMenu, SelectMenu, MenuEntry, show_message_menu
+from fz_manager.utils import Colors, String
+from menu import ActionMenu, SelectMenu, MenuEntry, PathMenu, AlertMenu
 from api.factorio_zone import FZApi
 from prompt_toolkit.input import create_input
 from prompt_toolkit.keys import Keys
@@ -17,10 +18,11 @@ class Main:
     input_command = ''
 
     def __init__(self) -> None:
-        self.userToken = input('Insert userToken: ')
-        self.api = FZApi(self.userToken)
+        self.api = None
 
     async def main(self):
+        token = await ainput('Insert userToken: ')
+        self.api = FZApi(token if not String.isblank(token) else None)
         asyncio.get_event_loop_policy().get_event_loop().create_task(self.api.connect())
         await self.api.wait_sync()
         await self.main_menu()
@@ -28,7 +30,7 @@ class Main:
     # Main Menu
     async def main_menu(self):
         await ActionMenu(
-            title='Factorio Zone Manager',
+            message='Main menu',
             entries=[
                 MenuEntry('Start server', self.start_server, condition=lambda: not self.api.running),
                 MenuEntry('Attach to server', self.attach_to_server, condition=lambda: self.api.running),
@@ -43,7 +45,7 @@ class Main:
 
     async def manage_mods_menu(self):
         await ActionMenu(
-            title='Manage mods',
+            message='Manage mods',
             entries=[
                 MenuEntry('Create mod-settings.zip', self.create_mod_settings),
                 MenuEntry('Upload mods', self.upload_mods_menu),
@@ -57,7 +59,7 @@ class Main:
 
     async def manage_saves_menu(self):
         await ActionMenu(
-            title='Main menu',
+            message='Main menu',
             entries=[
                 MenuEntry('Upload save', self.upload_save_menu),
                 MenuEntry('Delete save', self.delete_save_menu),
@@ -70,13 +72,20 @@ class Main:
 
     async def create_mod_settings(self):
         dat = 'mod-settings.dat'
-        mods_folder_path = input('Insert path to mods folder: ')
+
+        def validator(p: str) -> bool:
+            return path.exists(path.join(p, dat))
+
+        mods_folder_path = await PathMenu('Insert path to mods folder: ', only_directories=True, validator=validator).show()
+        if not mods_folder_path:
+            return
+
         mod_settings_dat_path = path.join(mods_folder_path, dat)
         info_json_path = path.join(mods_folder_path, 'info.json')
         mod_settings_zip_path = path.join(mods_folder_path, "mod-settings.zip")
 
         if not path.exists(mod_settings_dat_path):
-            return await show_message_menu(f'Unable to find {dat}')
+            return await AlertMenu(f'Unable to find {dat}').show()
 
         with open(info_json_path, 'w') as fp:
             json.dump({
@@ -91,20 +100,26 @@ class Main:
         zf.write(info_json_path)
         zf.close()
         os.remove(info_json_path)
-        await show_message_menu(f'{mod_settings_zip_path} created')
+        await AlertMenu(f'{mod_settings_zip_path} created').show()
 
     async def upload_mods_menu(self):
-        mods_folder_path = input('Insert path to mods folder: ')
+        mods_folder_path = await PathMenu(
+            'Insert path to mods folder: ',
+            only_directories=True,
+            validator=lambda p: path.exists(p)
+        ).show()
+        if mods_folder_path is None:
+            return
 
         root, _, filenames = next(walk(mods_folder_path), (None, None, []))
         zip_files = list(filter(lambda n: n.endswith('.zip'), filenames))
 
         if len(zip_files) == 0:
-            await show_message_menu('No mod found in folder')
+            await AlertMenu('No mod found in folder').show()
             return
 
         selected, _, _ = await SelectMenu(
-            title='Choose mods to upload',
+            message='Choose mods to upload',
             entries=[MenuEntry(f, pre_selected=True) for f in zip_files],
             multi_select=True,
             clear_screen=True
@@ -131,12 +146,15 @@ class Main:
                 try:
                     await self.api.upload_mod(mod, callback)
                 except Exception as ex:
-                    await show_message_menu(str(ex))
+                    await AlertMenu(str(ex)).show()
                 progress.update(main_task, advance=1)
 
     async def disable_mods_menu(self):
+        if not self.api.mods or not len(self.api.mods):
+            return await AlertMenu('No uploaded mods found').show()
+
         _, added, deselected = await SelectMenu(
-            title='Enable/Disable mods',
+            message='Enable/Disable mods',
             entries=[MenuEntry(m['text'], pre_selected=m['enabled'], ext_index=m['id']) for m in self.api.mods],
             multi_select=True,
             clear_screen=True
@@ -158,10 +176,10 @@ class Main:
 
     async def delete_mods_menu(self):
         if not self.api.mods or not len(self.api.mods):
-            return await show_message_menu('No uploaded mods found')
+            return await AlertMenu('No uploaded mods found').show()
 
         selected, _, _ = await SelectMenu(
-            title='Delete mods',
+            message='Delete mods',
             entries=[MenuEntry(m['text'], ext_index=m['id']) for m in self.api.mods],
             multi_select=True,
             clear_screen=True
@@ -175,15 +193,18 @@ class Main:
             progress.remove_task(bar)
 
     async def upload_save_menu(self):
-        file_path = input('Insert path to save file: ')
+        file_path = await PathMenu(
+            'Insert path to save file: ',
+            validator=lambda p: path.exists(p) and path.splitext(p)[1] == '.zip'
+        ).show()
 
         if not path.exists(file_path):
-            return await show_message_menu(f'{file_path} save file does not exist.')
+            return await AlertMenu(f'{file_path} save file does not exist.').show()
 
         file_extension = path.splitext(file_path)[1]
         filename = path.basename(file_path)
         if file_extension != '.zip':
-            return await show_message_menu('Save file must be a zip archive.')
+            return await AlertMenu('Save file must be a zip archive.').show()
 
         slot = await SelectMenu(
             'Select save slot:',
@@ -221,12 +242,12 @@ class Main:
                 progress.remove_task(upload_task)
             except Exception as ex:
                 progress.remove_task(upload_task)
-                await show_message_menu(str(ex))
+                await AlertMenu(str(ex)).show()
 
     async def delete_save_menu(self):
         slots: list[str] = self.api.saves.values().mapping.values()
         selected, _, _ = await SelectMenu(
-            title='Select slots to delete:',
+            message='Select slots to delete:',
             entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')],
             clear_screen=True,
             multi_select=True
@@ -242,13 +263,13 @@ class Main:
                     progress.print(f'Deleting slot {slot.ext_index}')
                     await self.api.delete_save_slot(slot_name)
                 except Exception as ex:
-                    await show_message_menu(str(ex))
+                    await AlertMenu(str(ex)).show()
                 progress.update(delete_task, advance=1)
 
     async def download_save_menu(self):
         slots: list[str] = self.api.saves.values().mapping.values()
         selected, _, _ = await SelectMenu(
-            title='Select slots to download:',
+            message='Select slots to download:',
             entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')],
             clear_screen=True,
             multi_select=True
@@ -256,11 +277,11 @@ class Main:
         if not selected:
             return
 
-        directory = input('Insert download directory path: ')
+        directory = await PathMenu('Insert download directory path: ', only_directories=True).show()
         if not path.exists(directory):
-            return await show_message_menu('Directory not found')
+            return await AlertMenu('Directory not found').show()
         if not path.isdir(directory):
-            return await show_message_menu(f'{directory} is not a directory')
+            return await AlertMenu(f'{directory} is not a directory').show()
 
         with Progress() as progress:
             download_task = progress.add_task(f'Downloading slots', total=len(selected))
@@ -287,7 +308,7 @@ class Main:
 
         slots: list[str] = self.api.saves.values().mapping.values()
         slot = await SelectMenu(
-            title='Select slots to download:',
+            message='Select slots to download:',
             entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots)]
         ).show()
         if not slot:
@@ -303,7 +324,7 @@ class Main:
         def keys_ready():
             for key_press in key_input.read_keys():
                 if key_press.key == Keys.Enter:
-                    print('\r\033[K'+colorize('COMMAND:', self.api.input_command, console_colors.OKGREEN))
+                    print('\r\033[K' + Colors.info('COMMAND:', self.api.input_command))
                     self.api.flush_command()
                 elif key_press.key == Keys.ControlC:
                     done.set()
@@ -324,7 +345,7 @@ class Main:
     async def choose_region(self):
         regions = sorted(self.api.regions.items())
         region = await SelectMenu(
-            title='Choose a region:',
+            message='Choose a region:',
             entries=[MenuEntry(f'{r[0]} - {r[1]}', ext_index=r[0]) for r in regions],
         ).show()
         return region.ext_index if region else None
@@ -332,7 +353,7 @@ class Main:
     # Factorio Version
     async def choose_factorio_version(self):
         version = await SelectMenu(
-            title='Choose a Factorio version:',
+            message='Choose a Factorio version:',
             entries=[MenuEntry(v) for v in self.api.versions],
         ).show()
         return version.name if version else None
@@ -340,4 +361,8 @@ class Main:
 
 if __name__ == '__main__':
     program = Main()
-    asyncio.get_event_loop_policy().get_event_loop().run_until_complete(program.main())  # pragma: no cover
+    # noinspection PyBroadException
+    try:
+        asyncio.get_event_loop_policy().get_event_loop().run_until_complete(program.main())  # pragma: no cover
+    except:
+        pass

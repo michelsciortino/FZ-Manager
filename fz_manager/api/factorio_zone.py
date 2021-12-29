@@ -6,7 +6,7 @@ import ssl
 import json
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
-from fz_manager.utils import cls, colorize, console_colors
+from fz_manager.utils import Term, Colors
 
 FACTORIO_ZONE_ENDPOINT = 'factorio.zone'
 
@@ -14,7 +14,7 @@ COMMAND_SYMBOL = '>'
 
 
 class FZApi:
-    def __init__(self, token: str):
+    def __init__(self, token: str = None):
         self.launchId = None
         self.socket = None
         self.referrer_code = None
@@ -86,36 +86,36 @@ class FZApi:
                         self.logs_map[log_id] = log_id
                         self.logs.append(log)
                         if self.attached:
-                            print(f'\r\033[K{log}')
+                            print(f'\r\033[K{log}', flush=False)
                             self.print_input_command()
 
                 case 'info':
                     log = data.get('line')
-                    self.logs.append(colorize(log, color=console_colors.OKBLUE))
+                    self.logs.append(Colors.info(log))
                 case 'warn':
                     log = data.get('line')
-                    self.logs.append(colorize('warn', log, color=console_colors.WARNING))
+                    self.logs.append(Colors.warn('warn', log))
                 case 'error':
                     log = data.get('line')
-                    self.logs.append(colorize('error', log, color=console_colors.FAIL))
+                    self.logs.append(Colors.error('error', log))
 
     def attach_to_socket(self):
-        cls()
+        Term.cls()
         for log in self.logs:
-            print(log)
-        print(f'{COMMAND_SYMBOL} ', end='')
+            print(log, flush=False)
+        print(f'{COMMAND_SYMBOL} ', end='', flush=True)
         self.attached = True
 
     def detach_from_socket(self):
         self.attached = False
-        cls()
+        Term.cls()
 
     async def wait_sync(self):
         while not self.mods_sync or not self.saves_sync:
             await asyncio.sleep(1)
 
     def print_input_command(self):
-        print(f'\r\033[K{COMMAND_SYMBOL} {self.input_command}', end='')
+        print(f'\r\033[K{COMMAND_SYMBOL} {self.input_command}', end='', flush=True)
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):

@@ -13,6 +13,7 @@ requests-toolbelt = "^0.9.1"
 rich = "^10.16.1"
 prompt-toolkit = "^3.0.24"
 questionary = "^1.10.0"
+aioconsole = "^0.3.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
