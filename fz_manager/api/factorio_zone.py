@@ -104,9 +104,8 @@ class FZApi:
         Term.cls()
         self.input_command = ''
         print(Colors.RESET, Colors.ENDL, end='')
-        sys.stdout.flush()
         for log in self.logs:
-            print(log, flush=False)
+            print(log)
         self.print_input_command()
         self.attached = True
 
@@ -122,8 +121,7 @@ class FZApi:
         print('\r\033[K', Colors.RESET, Colors.ENDL,
               Colors.bg(Colors.FACTORIO_BG), Colors.fg(Colors.FACTORIO_FG), Colors.ENDL,
               COMMAND_SYMBOL, ' ', self.input_command, Colors.RESET,
-              sep='', flush=True, end='')
-        sys.stdout.flush()
+              sep='', end='')
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):
