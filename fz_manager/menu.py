@@ -64,28 +64,51 @@ class SelectMenu:
     def __init__(self,
                  message: str,
                  entries: list[MenuEntry],
+                 default: (int | str) = None,
                  clear_screen: bool = False,
-                 multi_select: bool = False
                  ):
         self.message = message
         self.entries = entries
-        self.multi = multi_select
         self.cls = clear_screen
+        self.default = default
 
-    async def show(self) -> (MenuEntry | tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None] | None):
+    async def show(self) -> (MenuEntry | None):
         if self.cls:
             Term.cls()
             print(MENU_HEADER)
-        if not self.multi:
-            choices = [Choice(e.name, e) for e in self.entries if e.condition()]
-            if not len(choices):
-                return None
-            return await questionary.select(
-                message=self.message,
-                choices=choices,
-                qmark='',
-                instruction=' '
-            ).ask_async(patch_stdout=True)
+        choices: list[Choice] = [Choice(e.name, e) for e in self.entries if e.condition()]
+        if not len(choices):
+            return None
+        default = None
+        if self.default is not None:
+            for c in choices:
+                if c.value.ext_index == self.default:
+                    default = c
+                    break
+
+        return await questionary.select(
+            message=self.message,
+            choices=choices,
+            qmark='',
+            instruction=' ',
+            default=default
+        ).ask_async(patch_stdout=True)
+
+
+class MultiSelectMenu:
+    def __init__(self,
+                 message: str,
+                 entries: list[MenuEntry],
+                 clear_screen: bool = False
+                 ):
+        self.message = message
+        self.entries = entries
+        self.cls = clear_screen
+
+    async def show(self) -> (tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None]):
+        if self.cls:
+            Term.cls()
+            print(MENU_HEADER)
 
         choices = [Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()]
         if not len(choices):
@@ -100,19 +123,16 @@ class SelectMenu:
         if choice is None:
             return None, None, None
 
-        if not self.multi:
-            return self.entries[choice]
-        else:
-            selected: list[MenuEntry] = choice
-            added: list[MenuEntry] = []
-            removed: list[MenuEntry] = []
-            for entry in self.entries:
-                if entry in choice:
-                    if not entry.pre_selected:
-                        added.append(entry)
-                elif entry.pre_selected:
-                    removed.append(entry)
-            return selected, added, removed
+        selected: list[MenuEntry] = choice
+        added: list[MenuEntry] = []
+        removed: list[MenuEntry] = []
+        for entry in self.entries:
+            if entry in choice:
+                if not entry.pre_selected:
+                    added.append(entry)
+            elif entry.pre_selected:
+                removed.append(entry)
+        return selected, added, removed
 
 
 class PathMenu:
@@ -143,8 +163,34 @@ class PathMenu:
 
 
 class AlertMenu:
-    def __init__(self, message):
+    def __init__(self, message, clear_screen: bool = False):
         self.message = message
+        self.cls = clear_screen
 
     async def show(self):
+        if self.cls:
+            Term.cls()
+            print(MENU_HEADER)
         return await ActionMenu(self.message, [MenuEntry('Back')], 'Back').show()
+
+
+class InputMenu:
+    def __init__(self,
+                 message: str,
+                 hint: str = None,
+                 validator: Optional[Callable[[str], bool]] = lambda p: True,
+                 clear_screen: bool = False):
+        self.message = message
+        self.hint = hint if hint else ''
+        self.validator = validator
+        self.cls = clear_screen
+
+    async def show(self):
+        if self.cls:
+            Term.cls()
+            print(MENU_HEADER)
+        return await questionary.text(
+            message=self.message,
+            default=self.hint,
+            validate=self.validator
+        ).ask_async()

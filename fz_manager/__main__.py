@@ -4,27 +4,32 @@ import re
 import json
 import zipfile
 import asyncio
-from aioconsole import ainput
 from rich.progress import Progress
-
 from fz_manager.utils import String
-from menu import ActionMenu, SelectMenu, MenuEntry, PathMenu, AlertMenu
+from menu import ActionMenu, SelectMenu, MultiSelectMenu, MenuEntry, PathMenu, AlertMenu, InputMenu
 from factorio_zone_api import FZClient
 from shell import Shell
+import storage
 
 
 class Main:
 
     def __init__(self) -> None:
-        self.client = None
-        self.shell = None
+        self.client: (FZClient | None) = None
+        self.shell: (Shell | None) = None
 
     async def main(self):
-        token = await ainput('Insert userToken: ')
+        storage.read()
+        token = storage.get('userToken')
+        token = await InputMenu(
+            message='Insert userToken:',
+            hint=token
+        ).show()
         self.client = FZClient(token if not String.isblank(token) else None)
         self.shell = Shell(self.client)
         asyncio.get_event_loop_policy().get_event_loop().create_task(self.client.connect())
         await self.client.wait_sync()
+        storage.store('userToken', self.client.user_token)
         await self.main_menu()
 
     # Main Menu
@@ -118,10 +123,9 @@ class Main:
             await AlertMenu('No mod found in folder').show()
             return
 
-        selected, _, _ = await SelectMenu(
+        selected, _, _ = await MultiSelectMenu(
             message='Choose mods to upload',
             entries=[MenuEntry(f, pre_selected=True) for f in zip_files],
-            multi_select=True,
             clear_screen=True
         ).show()
 
@@ -153,10 +157,9 @@ class Main:
         if not self.client.mods or not len(self.client.mods):
             return await AlertMenu('No uploaded mods found').show()
 
-        _, added, deselected = await SelectMenu(
+        _, added, deselected = await MultiSelectMenu(
             message='Enable/Disable mods',
             entries=[MenuEntry(m['text'], pre_selected=m['enabled'], ext_index=m['id']) for m in self.client.mods],
-            multi_select=True,
             clear_screen=True
         ).show()
         if added is None or deselected is None:
@@ -178,10 +181,9 @@ class Main:
         if not self.client.mods or not len(self.client.mods):
             return await AlertMenu('No uploaded mods found').show()
 
-        selected, _, _ = await SelectMenu(
+        selected, _, _ = await MultiSelectMenu(
             message='Delete mods',
             entries=[MenuEntry(m['text'], ext_index=m['id']) for m in self.client.mods],
-            multi_select=True,
             clear_screen=True
         ).show()
         with Progress() as progress:
@@ -246,11 +248,10 @@ class Main:
 
     async def delete_save_menu(self):
         slots: list[str] = self.client.saves.values().mapping.values()
-        selected, _, _ = await SelectMenu(
+        selected, _, _ = await MultiSelectMenu(
             message='Select slots to delete:',
             entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')],
             clear_screen=True,
-            multi_select=True
         ).show()
         if not selected:
             return
@@ -268,11 +269,10 @@ class Main:
 
     async def download_save_menu(self):
         slots: list[str] = self.client.saves.values().mapping.values()
-        selected, _, _ = await SelectMenu(
+        selected, _, _ = await MultiSelectMenu(
             message='Select slots to download:',
             entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')],
-            clear_screen=True,
-            multi_select=True
+            clear_screen=True
         ).show()
         if not selected:
             return
@@ -301,19 +301,14 @@ class Main:
                 progress.update(download_task, advance=1)
 
     async def start_server(self):
-        if not (region := await self.choose_region()):
+        if (region := await self.choose_region()) is None:
             return
-        if not (version := await self.choose_factorio_version()):
+        if (version := await self.choose_factorio_version()) is None:
             return
-
-        slots: list[str] = self.client.saves.values().mapping.values()
-        slot = await SelectMenu(
-            message='Select slots to download:',
-            entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots)]
-        ).show()
-        if not slot:
+        if (slot := await self.choose_slot()) is None:
             return
-        await self.client.start_instance(region, version, f'slot{slot.ext_index}')
+        await self.client.start_instance(region, version, f'slot{slot}')
+        storage.persist()
 
     async def attach_to_server(self):
         await self.shell.attach()
@@ -324,19 +319,43 @@ class Main:
     # AWS Region
     async def choose_region(self):
         regions = sorted(self.client.regions.items())
+        region = storage.get('region')
+
         region = await SelectMenu(
             message='Choose a region:',
             entries=[MenuEntry(f'{r[0]} - {r[1]}', ext_index=r[0]) for r in regions],
+            default=region
         ).show()
-        return region.ext_index if region else None
+        if region:
+            storage.store('region', region.ext_index)
+            return region.ext_index
+        return None
 
     # Factorio Version
     async def choose_factorio_version(self):
+        version = storage.get('version')
         version = await SelectMenu(
             message='Choose a Factorio version:',
-            entries=[MenuEntry(v) for v in self.client.versions],
+            entries=[MenuEntry(v, ext_index=v) for v in self.client.versions],
+            default=version
         ).show()
-        return version.name if version else None
+        if version:
+            storage.store('version', version.ext_index)
+            return version.ext_index
+        return None
+
+    async def choose_slot(self):
+        slot = storage.get('slot')
+        slots: list[str] = self.client.saves.values().mapping.values()
+        slot = await SelectMenu(
+            message='Select slots to download:',
+            entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots)],
+            default=slot
+        ).show()
+        if slot:
+            storage.store('slot', slot.ext_index)
+            return slot.ext_index
+        return None
 
 
 if __name__ == '__main__':
