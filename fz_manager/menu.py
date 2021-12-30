@@ -3,7 +3,7 @@ import questionary
 from utils import Term, Colors
 from questionary import Choice
 
-MENU_HEADER = Colors.colorize(Colors.FACTORIO_FG, Colors.FACTORIO_BG, 'Factorio Zone Manager', end=Colors.ENDL + Colors.RESET)
+MENU_HEADER = Term.colorize(Colors.FACTORIO_FG, Colors.FACTORIO_BG, 'Factorio Zone Manager', end=Term.ENDL + Term.RESET)
 
 
 class MenuEntry:

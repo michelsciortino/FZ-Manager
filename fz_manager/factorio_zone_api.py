@@ -1,40 +1,33 @@
-import sys
-from typing import Callable
+from typing import Callable, Coroutine
 from websockets import client
 import asyncio
-from aioconsole import aprint
 import requests
 import ssl
 import json
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
-from fz_manager.utils import Term, Colors
+from fz_manager.utils import Term
 
 FACTORIO_ZONE_ENDPOINT = 'factorio.zone'
 
-COMMAND_SYMBOL = '>'
 
-
-class FZApi:
+class FZClient:
     def __init__(self, token: str = None):
-        self.launchId = None
         self.socket = None
-        self.referrer_code = None
         self.user_token = token
         self.visit_secret = None
-        self.launch_id = None
-        self.socket = None
-        self.running = False
+        self.referrer_code = None
         self.regions = {}
-        self.region = None
         self.versions = {}
         self.slots = {}
         self.saves = {}
         self.mods = []
-        self.logs_map = {}
+        self.running = False
+        self.launch_id = None
+        self.region = None
         self.logs = []
-        self.input_command = ''
-        self.attached = False
+        self.logs_map = {}
+        self.logs_listeners: list[Callable[[str], Coroutine]] = []
         self.mods_sync = False
         self.saves_sync = False
 
@@ -69,7 +62,7 @@ class FZApi:
                     self.mods_sync = True
                 case 'idle':
                     self.running = False
-                    self.launchId = None
+                    self.launch_id = None
                 case "starting":
                     self.running = True
                     self.launch_id = data.get('launchId')
@@ -87,42 +80,33 @@ class FZApi:
                         log = data.get('line')
                         self.logs_map[log_id] = log_id
                         self.logs.append(log)
-                        if self.attached:
-                            await aprint('\r\033[K', Colors.RESET, Colors.ENDL, log, sep='')
-                            await self.print_input_command()
-
+                        await self.on_new_log(log)
                 case 'info':
-                    log = data.get('line')
-                    self.logs.append(Colors.info(log))
+                    log = Term.info('info', data.get('line'))
+                    self.logs.append(log)
+                    await self.on_new_log(log)
                 case 'warn':
-                    log = data.get('line')
-                    self.logs.append(Colors.warn('warn', log))
+                    log = Term.warn('warn', data.get('line'))
+                    self.logs.append(log)
+                    await self.on_new_log(log)
                 case 'error':
-                    log = data.get('line')
-                    self.logs.append(Colors.error('error', log))
-
-    async def attach_to_socket(self):
-        Term.cls()
-        self.input_command = ''
-        print(Colors.RESET, Colors.ENDL, end='')
-        for log in self.logs:
-            await aprint(log)
-        await self.print_input_command()
-        self.attached = True
-
-    def detach_from_socket(self):
-        self.attached = False
-        Term.cls()
+                    log = Term.error('error', data.get('line'))
+                    self.logs.append(log)
+                    await self.on_new_log(log)
 
     async def wait_sync(self):
         while not self.mods_sync or not self.saves_sync:
             await asyncio.sleep(1)
 
-    async def print_input_command(self):
-        await aprint('\r\033[K', Colors.RESET, Colors.ENDL,
-                     Colors.bg(Colors.FACTORIO_BG), Colors.fg(Colors.FACTORIO_FG), Colors.ENDL,
-                     COMMAND_SYMBOL, ' ', self.input_command, Colors.RESET,
-                     sep='', end='')
+    def add_logs_listener(self, listener):
+        self.logs_listeners.append(listener)
+
+    def remove_logs_listener(self, listener):
+        self.logs_listeners.remove(listener)
+
+    async def on_new_log(self, log: str):
+        for listener in self.logs_listeners:
+            await listener(log)
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):
@@ -257,16 +241,15 @@ class FZApi:
         await self.wait_sync()
 
     # ------ INSTANCE APIs --------------------------------------------------------------
-    def flush_command(self):
+    def send_command(self, command):
         resp = requests.post(
             f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/console', {
                 'visitSecret': self.visit_secret,
                 'launchId': self.launch_id,
-                'input': self.input_command
+                'input': command
             })
         if not resp.ok:
             raise Exception(f'Error sending console command: {resp.text}')
-        self.input_command = ''
 
     async def start_instance(self, region, version, save):
         print('Starting instance...', end='')
