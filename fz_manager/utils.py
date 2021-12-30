@@ -14,7 +14,9 @@ class Colors:
     RED = 255, 0, 0
     BLUE = 30, 144, 255
     ORANGE = 255, 165, 0
-    END = '\033[0m'
+    RESET = '\033[0m'
+    RESET_FG = '\033[39m'
+    RESET_BG = '\033[49m'
     ENDL = '\033[K'
 
     @staticmethod
@@ -26,14 +28,17 @@ class Colors:
         return f'\033[48;2;{rgb[0]};{rgb[1]};{rgb[2]}m'
 
     @staticmethod
-    def colorize(fg_color: tuple[int, int, int] = None, bg_color: tuple[int, int, int] = None, *text: str, endl=False) -> str:
-        if not (fg_color and bg_color):
+    def colorize(fg_color: tuple[int, int, int] = None,
+                 bg_color: tuple[int, int, int] = None,
+                 *text: str,
+                 sep: str = ' ',
+                 end: str = RESET) -> str:
+        if not fg_color and not bg_color:
             return ' '.join(text)
         foreground = Colors.fg(fg_color) if fg_color else ''
         background = Colors.bg(bg_color) if bg_color else ''
-        t = ' '.join(text)
-        end = Colors.ENDL if endl else Colors.END
-        return foreground + background + t + end
+        t = sep.join(text)
+        return background + foreground + t + end
 
     @staticmethod
     def debug(*text: str):
@@ -50,11 +55,6 @@ class Colors:
     @staticmethod
     def error(*text: str):
         return Colors.colorize(Colors.RED, None, *text)
-
-    @staticmethod
-    def factorio(*text: str):
-        t = Colors.colorize(Colors.FACTORIO_FG, Colors.FACTORIO_BG, *text, endl=True)
-        return t
 
 
 class String:

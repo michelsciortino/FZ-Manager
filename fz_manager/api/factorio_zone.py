@@ -1,3 +1,4 @@
+import sys
 from typing import Callable
 from websockets import client
 import asyncio
@@ -86,7 +87,7 @@ class FZApi:
                         self.logs_map[log_id] = log_id
                         self.logs.append(log)
                         if self.attached:
-                            print(f'\r\033[K{log}', flush=False)
+                            print('\r\033[K', Colors.RESET, Colors.ENDL, log, sep='')
                             self.print_input_command()
 
                 case 'info':
@@ -101,9 +102,12 @@ class FZApi:
 
     def attach_to_socket(self):
         Term.cls()
+        self.input_command = ''
+        print(Colors.RESET, Colors.ENDL, end='')
+        sys.stdout.flush()
         for log in self.logs:
             print(log, flush=False)
-        print(f'{COMMAND_SYMBOL} ', end='', flush=True)
+        self.print_input_command()
         self.attached = True
 
     def detach_from_socket(self):
@@ -115,7 +119,11 @@ class FZApi:
             await asyncio.sleep(1)
 
     def print_input_command(self):
-        print(f'\r\033[K{COMMAND_SYMBOL} {self.input_command}', end='', flush=True)
+        print('\r\033[K', Colors.RESET, Colors.ENDL,
+              Colors.bg(Colors.FACTORIO_BG), Colors.fg(Colors.FACTORIO_FG), Colors.ENDL,
+              COMMAND_SYMBOL, ' ', self.input_command, Colors.RESET,
+              sep='', flush=True, end='')
+        sys.stdout.flush()
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):
