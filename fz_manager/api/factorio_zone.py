@@ -2,6 +2,7 @@ import sys
 from typing import Callable
 from websockets import client
 import asyncio
+from aioconsole import aprint
 import requests
 import ssl
 import json
@@ -87,8 +88,8 @@ class FZApi:
                         self.logs_map[log_id] = log_id
                         self.logs.append(log)
                         if self.attached:
-                            print('\r\033[K', Colors.RESET, Colors.ENDL, log, sep='')
-                            self.print_input_command()
+                            await aprint('\r\033[K', Colors.RESET, Colors.ENDL, log, sep='')
+                            await self.print_input_command()
 
                 case 'info':
                     log = data.get('line')
@@ -100,13 +101,13 @@ class FZApi:
                     log = data.get('line')
                     self.logs.append(Colors.error('error', log))
 
-    def attach_to_socket(self):
+    async def attach_to_socket(self):
         Term.cls()
         self.input_command = ''
         print(Colors.RESET, Colors.ENDL, end='')
         for log in self.logs:
-            print(log)
-        self.print_input_command()
+            await aprint(log)
+        await self.print_input_command()
         self.attached = True
 
     def detach_from_socket(self):
@@ -117,11 +118,11 @@ class FZApi:
         while not self.mods_sync or not self.saves_sync:
             await asyncio.sleep(1)
 
-    def print_input_command(self):
-        print('\r\033[K', Colors.RESET, Colors.ENDL,
-              Colors.bg(Colors.FACTORIO_BG), Colors.fg(Colors.FACTORIO_FG), Colors.ENDL,
-              COMMAND_SYMBOL, ' ', self.input_command, Colors.RESET,
-              sep='', end='')
+    async def print_input_command(self):
+        await aprint('\r\033[K', Colors.RESET, Colors.ENDL,
+                     Colors.bg(Colors.FACTORIO_BG), Colors.fg(Colors.FACTORIO_FG), Colors.ENDL,
+                     COMMAND_SYMBOL, ' ', self.input_command, Colors.RESET,
+                     sep='', end='')
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):

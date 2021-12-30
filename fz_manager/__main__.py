@@ -316,7 +316,7 @@ class Main:
         await self.api.start_instance(region, version, f'slot{slot.ext_index}')
 
     async def attach_to_server(self):
-        self.api.attach_to_socket()
+        await self.api.attach_to_socket()
 
         done = asyncio.Event()
         key_input = create_input()
