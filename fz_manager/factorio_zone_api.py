@@ -1,14 +1,22 @@
+import re
 from typing import Callable, Coroutine
 from websockets import client
 import asyncio
 import requests
 import ssl
 import json
+from aioconsole import aprint
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
-
 from fz_manager.utils import Term
 
 FACTORIO_ZONE_ENDPOINT = 'factorio.zone'
+
+
+class ServerStatus:
+    OFFLINE = 'OFFLINE'
+    STARTING = 'STARTING'
+    STOPPING = 'STOPPING'
+    RUNNING = 'RUNNING'
 
 
 class FZClient:
@@ -25,6 +33,8 @@ class FZClient:
         self.running = False
         self.launch_id = None
         self.region = None
+        self.server_address = None
+        self.server_status = ServerStatus.OFFLINE
         self.logs = []
         self.logs_map = {}
         self.logs_listeners: list[Callable[[str], Coroutine]] = []
@@ -63,15 +73,21 @@ class FZClient:
                 case 'idle':
                     self.running = False
                     self.launch_id = None
+                    self.server_status = ServerStatus.OFFLINE
+                    self.server_address = None
                 case "starting":
                     self.running = True
                     self.launch_id = data.get('launchId')
+                    self.server_status = ServerStatus.STARTING
                 case "stopping":
                     self.running = True
                     self.launch_id = data.get('launchId')
+                    self.server_status = ServerStatus.STOPPING
                 case 'running':
                     self.running = True
                     self.launch_id = data.get('launchId')
+                    self.server_address = data.get('socket')
+                    self.server_status = ServerStatus.RUNNING
                 case 'slot':
                     self.slots[data['slot']] = data
                 case 'log':
@@ -82,7 +98,11 @@ class FZClient:
                         self.logs.append(log)
                         await self.on_new_log(log)
                 case 'info':
-                    log = Term.info('info', data.get('line'))
+                    line = data.get('line')
+                    if len(match := re.findall('selecting connection (\d+\.\d+\.\d+\.\d+:\d+)', line)):
+                        self.server_address = match[0]
+                        self.server_status = ServerStatus.STARTING
+                    log = Term.info('info', line)
                     self.logs.append(log)
                     await self.on_new_log(log)
                 case 'warn':
@@ -252,7 +272,7 @@ class FZClient:
             raise Exception(f'Error sending console command: {resp.text}')
 
     async def start_instance(self, region, version, save):
-        print('Starting instance...', end='')
+        await aprint('Starting instance...')
         resp = requests.post(
             f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/start', {
                 'visitSecret': self.visit_secret,
@@ -264,11 +284,10 @@ class FZClient:
             raise Exception(f'Error starting instance: {resp.text}')
         self.launch_id = resp.json()['launchId']
         while not self.running:
-            print('.', end='')
             await asyncio.sleep(1)
 
     async def stop_instance(self):
-        print('Stopping instance...', end='')
+        await aprint('Stopping instance...')
         resp = requests.post(
             f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/stop', {
                 'visitSecret': self.visit_secret,
@@ -277,5 +296,4 @@ class FZClient:
         if not resp.ok:
             raise Exception(f'Error stopping instance: {resp.text}')
         while self.running:
-            print('.', end='')
             await asyncio.sleep(1)
