@@ -1,5 +1,6 @@
 import re
 from typing import Callable, Coroutine
+from inspect import iscoroutinefunction
 from websockets import client
 import asyncio
 import requests
@@ -35,9 +36,8 @@ class FZClient:
         self.region = None
         self.server_address = None
         self.server_status = ServerStatus.OFFLINE
-        self.logs = []
         self.logs_map = {}
-        self.logs_listeners: list[Callable[[str], Coroutine]] = []
+        self.logs_listeners: list[Callable[[str], Coroutine | Callable]] = []
         self.mods_sync = False
         self.saves_sync = False
 
@@ -95,7 +95,6 @@ class FZClient:
                     if log_id not in self.logs_map:
                         log = data.get('line')
                         self.logs_map[log_id] = log_id
-                        self.logs.append(log)
                         await self.on_new_log(log)
                 case 'info':
                     line = data.get('line')
@@ -103,15 +102,12 @@ class FZClient:
                         self.server_address = match[0]
                         self.server_status = ServerStatus.STARTING
                     log = Term.info('info', line)
-                    self.logs.append(log)
                     await self.on_new_log(log)
                 case 'warn':
                     log = Term.warn('warn', data.get('line'))
-                    self.logs.append(log)
                     await self.on_new_log(log)
                 case 'error':
                     log = Term.error('error', data.get('line'))
-                    self.logs.append(log)
                     await self.on_new_log(log)
 
     async def wait_sync(self):
@@ -126,7 +122,10 @@ class FZClient:
 
     async def on_new_log(self, log: str):
         for listener in self.logs_listeners:
-            await listener(log)
+            if iscoroutinefunction(listener):
+                await listener(log)
+            else:
+                listener(log)
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):
