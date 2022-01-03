@@ -4,34 +4,36 @@ import re
 import json
 import zipfile
 import asyncio
+
+from aioconsole import aprint
 from rich.progress import Progress
 from fz_manager.utils import String, Term, Colors
-from menu import ActionMenu, SelectMenu, MultiSelectMenu, MenuEntry, PathMenu, AlertMenu, InputMenu
+from menu import ActionMenu, SelectMenu, CheckboxMenu, MenuEntry, PathMenu, AlertMenu, InputMenu
 from factorio_zone_api import FZClient, ServerStatus
 from shell import Shell
-import storage
+from storage import Storage
+from utils import run_on_thread
+import titlebar
 
 
 class Main:
 
     def __init__(self) -> None:
+        self.storage = Storage()
         self.client: (FZClient | None) = None
         self.shell: (Shell | None) = None
+        self.titlebar = None
 
     async def main(self):
-        storage.read()
-        token = storage.get('userToken')
-        token = await InputMenu(
-            message='Insert userToken:',
-            hint=token,
-            clear_screen=True,
-            header=self.create_header()
-        ).show()
+        token = await self.choose_token()
+        if token is None:
+            return
         self.client = FZClient(token if not String.isblank(token) else None)
-        self.shell = Shell(self.client)
+        self.shell = Shell(self.client, self.storage)
         asyncio.get_event_loop_policy().get_event_loop().create_task(self.client.connect())
         await self.client.wait_sync()
-        storage.store('userToken', self.client.user_token)
+        self.titlebar = titlebar.create_titlebar(self.client)
+        self.storage.store('userToken', self.client.user_token)
         await self.main_menu()
 
     # Main Menu
@@ -44,14 +46,14 @@ class Main:
                     MenuEntry('Attach to server', self.attach_to_server, condition=lambda: self.client.running),
                     MenuEntry('Stop server', self.stop_server,
                               condition=lambda: self.client.running and self.client.server_status == ServerStatus.RUNNING),
-                    MenuEntry('Manage mods', self.manage_mods_menu),
-                    MenuEntry('Manage saves', self.manage_saves_menu),
+                    MenuEntry('Manage mods', self.manage_mods_menu, condition=lambda: not self.client.running),
+                    MenuEntry('Manage saves', self.manage_saves_menu, condition=lambda: not self.client.running),
                     MenuEntry('Exit')
                 ],
-                clear_screen=True,
-                header=self.create_header()
+                titlebar=self.titlebar,
+                clear_screen=True
             ).show()
-
+            Term.cls()
             if action is None or action.name == 'Exit':
                 break
 
@@ -66,10 +68,10 @@ class Main:
                     MenuEntry('Delete uploaded mods', self.delete_mods_menu),
                     MenuEntry('Back')
                 ],
-                clear_screen=True,
-                header=self.create_header()
+                titlebar=self.titlebar,
+                clear_screen=True
             ).show()
-
+            Term.cls()
             if action is None or action.name == 'Back':
                 break
 
@@ -83,10 +85,10 @@ class Main:
                     MenuEntry('Download save', self.download_save_menu),
                     MenuEntry('Back')
                 ],
-                clear_screen=True,
-                header=self.create_header()
+                titlebar=self.titlebar,
+                clear_screen=True
             ).show()
-
+            Term.cls()
             if action is None or action.name == 'Back':
                 break
 
@@ -96,8 +98,15 @@ class Main:
         def validator(p: str) -> bool:
             return path.exists(path.join(p, dat))
 
-        mods_folder_path = await PathMenu('Insert path to mods folder: ', only_directories=True, validator=validator).show()
-        if not mods_folder_path:
+        mods_folder_path = await PathMenu(
+            'Insert path to mods folder: ',
+            only_directories=True,
+            validator=validator,
+            load_last_value=True,
+            titlebar=self.titlebar,
+            history=self.storage.mods_path_history
+        ).show()
+        if mods_folder_path is None:
             return
 
         mod_settings_dat_path = path.join(mods_folder_path, dat)
@@ -126,7 +135,10 @@ class Main:
         mods_folder_path = await PathMenu(
             'Insert path to mods folder: ',
             only_directories=True,
-            validator=lambda p: path.exists(p)
+            validator=lambda p: path.exists(p),
+            titlebar=self.titlebar,
+            load_last_value=True,
+            history=self.storage.mods_path_history
         ).show()
         if mods_folder_path is None:
             return
@@ -135,14 +147,11 @@ class Main:
         zip_files = list(filter(lambda n: n.endswith('.zip'), filenames))
 
         if len(zip_files) == 0:
-            await AlertMenu('No mod found in folder').show()
-            return
+            return await AlertMenu('No mod found in folder').show()
 
-        selected, _, _ = await MultiSelectMenu(
+        selected, _, _ = await CheckboxMenu(
             message='Choose mods to upload',
             entries=[MenuEntry(f, pre_selected=True) for f in zip_files],
-            clear_screen=True,
-            header=self.create_header()
         ).show()
 
         if not selected or not len(selected):
@@ -155,29 +164,28 @@ class Main:
             size = path.getsize(file_path)
             mods.append(FZClient.Mod(name, file_path, size))
 
-        with Progress() as progress:
-            main_task = progress.add_task('Uploading mods', total=len(mods))
-            for mod in mods:
-                mod_task = progress.add_task(f'Uploading {mod.name}', total=mod.size)
+        def callback(monitor):
+            progress.update(mod_task, completed=min(monitor.bytes_read, mod.size))
 
-                def callback(monitor):
-                    progress.update(mod_task, completed=min(monitor.bytes_read, mod.size))
-
-                try:
+        try:
+            with Progress() as progress:
+                main_task = progress.add_task('Uploading mods', total=len(mods))
+                for mod in mods:
+                    mod_task = progress.add_task(f'Uploading {mod.name}', total=mod.size)
                     await self.client.upload_mod(mod, callback)
-                except Exception as ex:
-                    await AlertMenu(str(ex)).show()
-                progress.update(main_task, advance=1)
+                    progress.update(main_task, advance=1)
+
+        except BaseException as ex:
+            return await AlertMenu(str(ex) or ex.__class__.__name__).show()
 
     async def disable_mods_menu(self):
         if not self.client.mods or not len(self.client.mods):
-            return await AlertMenu('No uploaded mods found').show()
+            return await AlertMenu('No uploaded mods found', titlebar=self.titlebar).show()
 
-        _, added, deselected = await MultiSelectMenu(
+        _, added, deselected = await CheckboxMenu(
             message='Enable/Disable mods',
             entries=[MenuEntry(m['text'], pre_selected=m['enabled'], ext_index=m['id']) for m in self.client.mods],
-            clear_screen=True,
-            header=self.create_header()
+            titlebar=self.titlebar
         ).show()
         if added is None or deselected is None:
             return
@@ -196,13 +204,12 @@ class Main:
 
     async def delete_mods_menu(self):
         if not self.client.mods or not len(self.client.mods):
-            return await AlertMenu('No uploaded mods found').show()
+            return await AlertMenu('No uploaded mods found', titlebar=self.titlebar).show()
 
-        selected, _, _ = await MultiSelectMenu(
+        selected, _, _ = await CheckboxMenu(
             message='Delete mods',
             entries=[MenuEntry(m['text'], ext_index=m['id']) for m in self.client.mods],
-            clear_screen=True,
-            header=self.create_header()
+            titlebar=self.titlebar
         ).show()
         with Progress() as progress:
             bar = progress.add_task('Deleting mods', total=len(selected))
@@ -215,7 +222,10 @@ class Main:
     async def upload_save_menu(self):
         file_path = await PathMenu(
             'Insert path to save file: ',
-            validator=lambda p: path.exists(p) and path.splitext(p)[1] == '.zip'
+            validator=lambda p: path.exists(p) and path.splitext(p)[1] == '.zip',
+            load_last_value=True,
+            titlebar=self.titlebar,
+            history=self.storage.saves_path_history
         ).show()
 
         if file_path is None:
@@ -268,15 +278,17 @@ class Main:
                 await AlertMenu(str(ex)).show()
 
     async def delete_save_menu(self):
-        slots: list[str] = self.client.saves.values().mapping.values()
-        selected, _, _ = await MultiSelectMenu(
+        entries = await self.get_remote_slots()
+        if len(entries) == 0:
+            return await AlertMenu('All the slots are empty', titlebar=self.titlebar).show()
+
+        selected, _, _ = await CheckboxMenu(
             message='Select slots to delete:',
-            entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')],
-            clear_screen=True,
-            header=self.create_header()
+            entries=entries,
+            titlebar=self.titlebar
         ).show()
+
         if not selected:
-            await AlertMenu('All the slots are empty').show()
             return
 
         with Progress() as progress:
@@ -291,18 +303,29 @@ class Main:
                 progress.update(delete_task, advance=1)
 
     async def download_save_menu(self):
-        slots: list[str] = self.client.saves.values().mapping.values()
-        selected, _, _ = await MultiSelectMenu(
+        entries = await self.get_remote_slots()
+        if len(entries) == 0:
+            return await AlertMenu('All the slots are empty', titlebar=self.titlebar).show()
+
+        selected, _, _ = await CheckboxMenu(
             message='Select slots to download:',
-            entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')],
-            clear_screen=True,
-            header=self.create_header()
+            entries=entries,
+            titlebar=self.titlebar
         ).show()
+
         if not selected:
-            await AlertMenu('All the slots are empty').show()
             return
 
-        directory = await PathMenu('Insert download directory path: ', only_directories=True).show()
+        directory = await PathMenu(
+            'Insert download directory path: ',
+            only_directories=True,
+            load_last_value=True,
+            history=self.storage.saves_path_history
+        ).show()
+
+        if directory is None:
+            return
+
         if not path.exists(directory):
             return await AlertMenu('Directory not found').show()
         if not path.isdir(directory):
@@ -326,61 +349,87 @@ class Main:
                 progress.update(download_task, advance=1)
 
     async def start_server(self):
-        if (region := await self.choose_region()) is None:
+        if (region := await self.choose_region(show_titlebar=True)) is None:
             return
         if (version := await self.choose_factorio_version()) is None:
             return
         if (slot := await self.choose_slot()) is None:
             return
-        await self.client.start_instance(region, version, f'slot{slot}')
-        storage.persist()
+        await aprint('Starting instance...')
+        self.client.add_logs_listener(aprint)
+        await run_on_thread(FZClient.start_instance, self.client, region, version, f'slot{slot}')
+        while not self.client.running and not self.client.server_address:
+            await asyncio.sleep(1)
+        self.client.remove_logs_listener(aprint)
+        self.storage.persist()
 
     async def attach_to_server(self):
-        await self.shell.attach()
+        await self.shell.show()
 
     async def stop_server(self):
-        await self.client.stop_instance()
+        await aprint('Stopping instance...')
+        self.client.add_logs_listener(aprint)
+        await run_on_thread(FZClient.stop_instance, self.client)
+        while self.client.running:
+            await asyncio.sleep(1)
+        self.client.remove_logs_listener(aprint)
+
+    async def get_remote_slots(self):
+        slots: list[str] = self.client.saves.values().mapping.values()
+        return [MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots) if not v.endswith('(empty)')]
 
     # AWS Region
-    async def choose_region(self):
+    async def choose_region(self, show_titlebar=False):
         regions = sorted(self.client.regions.items())
-        region = storage.get('region')
+        region = self.storage.get('region')
 
         region = await SelectMenu(
             message='Choose a region:',
             entries=[MenuEntry(f'{r[0]} - {r[1]}', ext_index=r[0]) for r in regions],
-            default=region
+            default=region,
+            titlebar=self.titlebar if show_titlebar else None
         ).show()
-        if region:
-            storage.store('region', region.ext_index)
-            return region.ext_index
-        return None
+        if region is None:
+            return
+        self.storage.store('region', region.ext_index)
+        return region.ext_index
 
     # Factorio Version
+    # noinspection PyProtectedMember
+    async def choose_token(self):
+        menu = InputMenu(
+            message='Insert userToken:',
+            titlebar=titlebar.create_titlebar(),
+            clear_screen=True,
+            load_last_value=True,
+            history=self.storage.token_history,
+        )
+        return await menu.show()
+
     async def choose_factorio_version(self):
-        version = storage.get('version')
+        version = self.storage.get('version')
         version = await SelectMenu(
             message='Choose a Factorio version:',
             entries=[MenuEntry(v, ext_index=v) for v in self.client.versions],
             default=version
         ).show()
-        if version:
-            storage.store('version', version.ext_index)
-            return version.ext_index
-        return None
+        if version is None:
+            return
+        self.storage.store('version', version.ext_index)
+        return version.ext_index
 
     async def choose_slot(self):
-        slot = storage.get('slot')
+        slot = self.storage.get('slot')
         slots: list[str] = self.client.saves.values().mapping.values()
         slot = await SelectMenu(
             message='Select slots to download:',
             entries=[MenuEntry(v, ext_index=i + 1) for i, v in enumerate(slots)],
             default=slot
         ).show()
-        if slot:
-            storage.store('slot', slot.ext_index)
-            return slot.ext_index
-        return None
+        if slot is None:
+            return None
+        self.storage.store('slot', slot.ext_index)
+        return slot.ext_index
 
     def create_header(self):
         if self.client and self.client.server_address:
@@ -395,6 +444,7 @@ class Main:
 
 
 if __name__ == '__main__':
+    Term.cls()
     program = Main()
     asyncio.get_event_loop_policy().get_event_loop().run_until_complete(program.main())  # pragma: no cover
-    print('Exiting...')
+    Term.cls()
