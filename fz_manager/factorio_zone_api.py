@@ -161,8 +161,7 @@ class FZClient:
             })
         if not resp.ok:
             self.mods_sync = True
-            raise Exception('Error in toggling mod: {resp.text}')
-        await self.wait_sync()
+            raise Exception(f'Error in toggling mod: {resp.text}')
 
     async def delete_mod(self, mod_id: int):
         self.mods_sync = False
@@ -175,7 +174,6 @@ class FZClient:
         if not resp.ok:
             self.mods_sync = True
             raise Exception(f'Error in deleting mod: {resp.text}')
-        await self.wait_sync()
 
     async def upload_mod(self, mod: Mod, cb: Callable = None):
         file = open(mod.filePath, 'rb')
@@ -197,7 +195,6 @@ class FZClient:
         if not resp.ok:
             self.mods_sync = True
             raise Exception(f'Error uploading mod: {resp.text}')
-        await self.wait_sync()
 
     # ------ SAVE APIs ------------------------------------------------------------------
     class Save:
@@ -218,10 +215,8 @@ class FZClient:
         if resp.status_code != 200:
             self.saves_sync = True
             raise Exception(f'Error deleting save: {resp.text}')
-        await self.wait_sync()
 
     async def download_save_slot(self, slot: str, file_path: str, cb: Callable):
-        self.saves_sync = False
         with requests.post(
                 url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/download',
                 data={
@@ -239,7 +234,6 @@ class FZClient:
                         file.write(chunk)
                         cb(file.tell())
                 file.close()
-        await self.wait_sync()
 
     async def upload_save(self, save: Save, cb: Callable = None):
         file = open(save.filePath, 'rb')
@@ -261,7 +255,6 @@ class FZClient:
         if not resp.ok:
             self.saves_sync = True
             raise Exception(f'Error uploading save: {resp.text}')
-        await self.wait_sync()
 
     # ------ INSTANCE APIs --------------------------------------------------------------
     def send_command(self, command):
@@ -275,8 +268,7 @@ class FZClient:
         if resp.status_code != 200:
             raise Exception(f'Error sending console command: {resp.text}')
 
-    async def start_instance(self, region, version, save):
-        await aprint('Starting instance...')
+    def start_instance(self, region, version, save):
         resp = requests.post(
             url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/start',
             data={
@@ -288,11 +280,8 @@ class FZClient:
         if resp.status_code != 200:
             raise Exception(f'Error starting instance: {resp.text}')
         self.launch_id = resp.json()['launchId']
-        while not self.running:
-            await asyncio.sleep(1)
 
-    async def stop_instance(self):
-        await aprint('Stopping instance...')
+    def stop_instance(self):
         resp = requests.post(
             url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/stop',
             data={
@@ -303,5 +292,3 @@ class FZClient:
         )
         if resp.status_code != 200:
             raise Exception(f'Error stopping instance: {resp.text}')
-        while self.running:
-            await asyncio.sleep(1)
