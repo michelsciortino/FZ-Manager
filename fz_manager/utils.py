@@ -2,12 +2,12 @@ import os
 
 
 class Term:
-    HEAD = '\r\033[K'
-    RESET = '\033[0m'
-    RESET_FG = '\033[39m'
-    RESET_BG = '\033[49m'
-    ENDL = '\033[K'
-    F_RESET = '\033[0m\033]11;?\a\033[K'
+    HEAD = '\r\x1B[K'
+    RESET = '\x1B[0m'
+    RESET_FG = '\x1B[39m'
+    RESET_BG = '\x1B[49m'
+    ENDL = '\x1B[K'
+    F_RESET = '\x1B[0m\x1B]11;?\a\x1B[K'
 
     @staticmethod
     def cls():
@@ -15,11 +15,11 @@ class Term:
 
     @staticmethod
     def fg(rgb: tuple[int, int, int]):
-        return f'\033[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m'
+        return f'\x1B[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m'
 
     @staticmethod
     def bg(rgb: tuple[int, int, int]):
-        return f'\033[48;2;{rgb[0]};{rgb[1]};{rgb[2]}m'
+        return f'\x1B[48;2;{rgb[0]};{rgb[1]};{rgb[2]}m'
 
     @staticmethod
     def colorize(fg_color: tuple[int, int, int] = None,
