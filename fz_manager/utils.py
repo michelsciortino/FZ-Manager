@@ -1,7 +1,7 @@
 import asyncio
+import inspect
 import os
 import threading
-import inspect
 
 
 class Term:

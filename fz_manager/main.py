@@ -1,19 +1,20 @@
-import os
-from os import path, walk
-import re
-import json
-import zipfile
 import asyncio
+import json
+import os
+import re
+import zipfile
+from os import path, walk
 
 from aioconsole import aprint
 from rich.progress import Progress
+
+from fz_manager.factorio_zone_api import FZClient, ServerStatus
+from fz_manager.menu import ActionMenu, SelectMenu, CheckboxMenu, MenuEntry, PathMenu, AlertMenu, InputMenu
+from fz_manager.shell import Shell
+from fz_manager.storage import Storage
+from fz_manager.titlebar import create_titlebar
 from fz_manager.utils import String, Term, Colors
-from menu import ActionMenu, SelectMenu, CheckboxMenu, MenuEntry, PathMenu, AlertMenu, InputMenu
-from factorio_zone_api import FZClient, ServerStatus
-from shell import Shell
-from storage import Storage
-from utils import run_on_thread
-import titlebar
+from fz_manager.utils import run_on_thread
 
 
 class Main:
@@ -30,7 +31,7 @@ class Main:
             return
         self.client = FZClient(token if not String.isblank(token) else None)
         self.shell = Shell(self.client, self.storage)
-        self.titlebar = titlebar.create_titlebar(self.client)
+        self.titlebar = create_titlebar(self.client)
         asyncio.get_event_loop_policy().get_event_loop().create_task(self.client.connect())
         await self.client.wait_sync()
         self.storage.store('userToken', self.client.user_token)
@@ -401,7 +402,7 @@ class Main:
     async def choose_token(self):
         menu = InputMenu(
             message='Insert userToken:',
-            titlebar=titlebar.create_titlebar(),
+            titlebar=create_titlebar(),
             clear_screen=True,
             load_last_value=True,
             history=self.storage.token_history,
@@ -445,7 +446,7 @@ class Main:
                              end=Term.ENDL + Term.RESET)
 
 
-if __name__ == '__main__':
+def main():
     Term.cls()
     program = Main()
     asyncio.get_event_loop_policy().get_event_loop().run_until_complete(program.main())  # pragma: no cover

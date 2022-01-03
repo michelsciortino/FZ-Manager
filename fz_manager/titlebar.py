@@ -1,9 +1,10 @@
 from prompt_toolkit.application import get_app
+from prompt_toolkit.formatted_text import merge_formatted_text, to_formatted_text
 from prompt_toolkit.layout.containers import Container, DynamicContainer, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.formatted_text import merge_formatted_text, to_formatted_text
-from factorio_zone_api import FZClient
-from utils import Colors
+
+from fz_manager.factorio_zone_api import FZClient
+from fz_manager.utils import Colors
 
 
 def create_titlebar(client: FZClient = None) -> DynamicContainer:

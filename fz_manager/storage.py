@@ -1,7 +1,7 @@
-import os
-from os import path, umask
-import tempfile
 import json
+import os
+import tempfile
+from os import path, umask
 
 from prompt_toolkit.history import FileHistory
 

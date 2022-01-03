@@ -1,13 +1,14 @@
-import re
-from typing import Callable, Coroutine
-from inspect import iscoroutinefunction
-from websockets import client
 import asyncio
-import requests
-import ssl
 import json
-from aioconsole import aprint
+import re
+import ssl
+from inspect import iscoroutinefunction
+from typing import Callable, Coroutine
+
+import requests
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+from websockets import client
+
 from fz_manager.utils import Term
 
 FACTORIO_ZONE_ENDPOINT = 'factorio.zone'

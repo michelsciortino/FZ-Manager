@@ -1,13 +1,13 @@
-from typing import Callable, Optional
 from inspect import iscoroutinefunction
+from typing import Callable, Optional
+
 import questionary
 from prompt_toolkit.history import History
 from prompt_toolkit.layout import Container
 from prompt_toolkit.output import ColorDepth
-from questionary import Choice, Question
 
 
-def __inject__(question: Question, titlebar: Container, erase_when_done: bool):
+def __inject__(question: questionary.Question, titlebar: Container, erase_when_done: bool):
     question.application.full_screen = True
     question.application.refresh_interval = 1
     question.application._color_depth = ColorDepth.DEPTH_24_BIT
@@ -47,7 +47,7 @@ class ActionMenu:
                  clear_screen: bool = False):
         self.message = message
         self.entries = entries
-        self.choices = [Choice(e.name, e) for e in self.entries if e.condition()]
+        self.choices = [questionary.Choice(e.name, e) for e in self.entries if e.condition()]
         self.question = questionary.select(
             self.message,
             self.choices,
@@ -79,7 +79,7 @@ class SelectMenu:
         self.message = message
         self.entries = entries
         self.default = default
-        self.choices: list[Choice] = [Choice(e.name, e) for e in self.entries if e.condition()]
+        self.choices: list[questionary.Choice] = [questionary.Choice(e.name, e) for e in self.entries if e.condition()]
         default = None
         if self.default is not None:
             for c in self.choices:
@@ -109,7 +109,7 @@ class CheckboxMenu:
                  clear_screen: bool = False):
         self.message = message
         self.entries = entries
-        self.choices = [Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()]
+        self.choices = [questionary.Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()]
         self.question = questionary.checkbox(
             message=self.message,
             choices=self.choices,

@@ -1,6 +1,6 @@
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.formatted_text import fragment_list_to_text
+from prompt_toolkit.formatted_text import fragment_list_to_text, to_formatted_text, ANSI
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout
@@ -8,12 +8,11 @@ from prompt_toolkit.layout.containers import Window, HSplit, VSplit
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl as FtC
 from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
 from prompt_toolkit.output import ColorDepth
-from factorio_zone_api import FZClient
-from storage import Storage
-from titlebar import create_titlebar
-from utils import Colors, Term, run_on_thread
-from prompt_toolkit.formatted_text.base import to_formatted_text
-from prompt_toolkit.formatted_text.ansi import ANSI
+
+from fz_manager.factorio_zone_api import FZClient
+from fz_manager.storage import Storage
+from fz_manager.titlebar import create_titlebar
+from fz_manager.utils import Colors, Term, run_on_thread
 
 COMMAND_SYMBOL = '>_'
 
