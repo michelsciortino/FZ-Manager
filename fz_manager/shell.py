@@ -1,108 +1,101 @@
-from factorio_zone_api import FZClient
-from utils import Term, Colors, String
-import asyncio
-from aioconsole import aprint
-from prompt_toolkit.input import create_input
+from prompt_toolkit import Application
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.formatted_text import fragment_list_to_text
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import Window, HSplit, VSplit
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl as FtC
+from prompt_toolkit.layout.processors import Processor, Transformation, TransformationInput
+from prompt_toolkit.output import ColorDepth
+from factorio_zone_api import FZClient
+from storage import Storage
+from titlebar import create_titlebar
+from utils import Colors, Term, run_on_thread
+from prompt_toolkit.formatted_text.base import to_formatted_text
+from prompt_toolkit.formatted_text.ansi import ANSI
 
 COMMAND_SYMBOL = '>_'
 
 
+class FormatText(Processor):
+    def apply_transformation(self, ti: TransformationInput):
+        fragments = to_formatted_text(ANSI(fragment_list_to_text(ti.fragments)))
+        return Transformation(fragments)
+
+
 class Shell:
-
-    def __init__(self, client: FZClient):
+    def __init__(self, client: FZClient, storage: Storage):
         self.client = client
-        self.attached = False
-        self.log_index = 0
-        self.cursor = 0
-        self.input_command: list[str] = []
-        self.commands_history: list[list[str]] = []
-        self.back_command: list[str] = []
+        self.commands_history = storage.command_history
+        self.logs_buffer = Buffer()
+        self.command_buffer = Buffer(history=self.commands_history)
+        self.app: Application | None = None
 
-    async def attach(self):
-        Term.cls()
-        self.log_index = 0
-        self.input_command = []
-        self.back_command = []
-        for log in self.client.logs:
-            await aprint(log, Term.F_RESET)
-        await self.print_input_command()
-        self.attached = True
+        command_kb = KeyBindings()
 
-        async def on_new_log(new: str) -> None:
-            if self.attached:
-                await self.print_input_command(Term.HEAD + Term.F_RESET, new, '\n')
+        @command_kb.add(Keys.Enter)
+        async def submit_command(_):
+            command = self.command_buffer.text.strip()
+            if not command:
+                return
+            self.push_log(Term.info('COMMAND:', command))
+            try:
+                self.command_buffer.reset(append_to_history=True)
+                await run_on_thread(FZClient.send_command, self.client, command)
+            except Exception as ex:
+                self.push_log(Term.error('Error:', str(ex)))
 
-        listener = on_new_log
-        self.client.add_logs_listener(listener)
+        @command_kb.add(Keys.Up)
+        def suggest_up(_):
+            self.command_buffer.history_backward()
 
-        done = asyncio.Event()
-        key_input = create_input()
+        @command_kb.add(Keys.Down)
+        def suggest_down(_):
+            self.command_buffer.history_forward()
 
-        def keys_ready():
-            for key_press in key_input.read_keys():
-                try:
-                    if key_press.key == key_press.data:
-                        self.input_command.append(key_press.data)
-                        self.cursor = len(self.commands_history)
-                    elif key_press.key == Keys.Enter:
-                        command = ''.join(self.input_command).strip()
-                        if String.isblank(command):
-                            continue
-                        print('\r\033[K' + Term.info('COMMAND:', command))
-                        self.flush_command()
-                    elif key_press.key == Keys.ControlC:
-                        done.set()
-                        continue
-                    elif key_press.key == Keys.ControlH:
-                        if len(self.input_command):
-                            self.input_command.pop()
-                        else:
-                            continue
-                    elif key_press.key == Keys.Up:
-                        if self.cursor > 0:
-                            self.cursor -= 1
-                            if self.cursor == len(self.commands_history):
-                                self.back_command = self.input_command
-                            self.input_command = self.commands_history[self.cursor].copy()
-                        else:
-                            continue
-                    elif key_press.key == Keys.Down:
-                        if self.cursor < len(self.commands_history) - 1:
-                            self.cursor += 1
-                            self.input_command = self.commands_history[self.cursor].copy()
-                        else:
-                            if self.cursor < len(self.commands_history):
-                                self.input_command = self.back_command
-                            else:
-                                continue
-                    else:
-                        continue
-                    asyncio.get_running_loop().create_task(self.print_input_command())
-                except Exception as ex:
-                    print(ex, end='\n\n')
+        command_window = Window(
+            BufferControl(self.command_buffer,
+                          key_bindings=command_kb,
+                          focusable=True,
+                          focus_on_click=True)
+        )
+        self.layout = Layout(HSplit([
+            create_titlebar(client),
+            Window(BufferControl(self.logs_buffer,
+                                 focusable=False,
+                                 input_processors=[FormatText()]), wrap_lines=False, style='bg:#212121'),
+            VSplit([
+                Window(FtC(COMMAND_SYMBOL), width=len(COMMAND_SYMBOL) + 1, style=f'fg:{Colors.FACTORIO_FG_HEX} bold'),
+                command_window
+            ], height=1, style=f'bg:{Colors.FACTORIO_BG_HEX}')
+        ]), focused_element=command_window)
 
-        with key_input.raw_mode():
-            with key_input.attach(keys_ready):
-                await done.wait()
-        self.client.remove_logs_listener(listener)
-        self.attached = False
-        Term.cls()
+        self.client.add_logs_listener(self.push_log)
 
-    async def print_input_command(self, *pre: str):
-        try:
-            await aprint(*pre, Term.HEAD, Term.bg(Colors.FACTORIO_BG), Term.fg(Colors.FACTORIO_FG), Term.ENDL,
-                         COMMAND_SYMBOL, ' ', ''.join(self.input_command),
-                         sep='', end=Term.RESET)
-        except Exception as ex:
-            print(ex, end='\n\n')
+    def push_log(self, *log: str) -> None:
+        if not log or len(log) == 0:
+            return
+        text = ' '.join(log)
+        if self.logs_buffer.text:
+            self.logs_buffer.text += '\n' + text
+        else:
+            self.logs_buffer.text += text
+        self.logs_buffer.cursor_down(self.logs_buffer.document.line_count - self.logs_buffer.document.cursor_position_row)
 
-    def flush_command(self):
-        command = ''.join(self.input_command).strip()
-        try:
-            self.client.send_command(command)
-            self.commands_history.append(self.input_command)
-            self.cursor = len(self.commands_history)
-            self.input_command = []
-        except Exception as ex:
-            print('Error sending command:', ex)
+    async def show(self) -> None:
+        app_kb = KeyBindings()
+
+        @app_kb.add(Keys.ControlC)
+        def __exit(_):
+            self.app.exit()
+
+        self.app = Application(layout=self.layout,
+                               full_screen=True,
+                               color_depth=ColorDepth.DEPTH_24_BIT,
+                               refresh_interval=1,
+                               mouse_support=True,
+                               erase_when_done=True,
+                               key_bindings=app_kb
+                               )
+        await self.app.run_async()
