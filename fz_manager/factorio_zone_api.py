@@ -129,12 +129,13 @@ class FZClient:
 
     # ------ USER APIs ------------------------------------------------------------------
     def login(self):
-        resp = requests.post(f'https://{FACTORIO_ZONE_ENDPOINT}/api/user/login',
-                             data={
-                                 'userToken': self.user_token,
-                                 'visitSecret': self.visit_secret,
-                                 'reconnected': False
-                             })
+        resp = requests.post(
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/user/login',
+            data={
+                'userToken': self.user_token,
+                'visitSecret': self.visit_secret,
+                'reconnected': False
+            })
         if resp.ok:
             body = resp.json()
             self.user_token = body['userToken']
@@ -151,12 +152,13 @@ class FZClient:
 
     async def toggle_mod(self, mod_id: int, enabled: bool):
         self.mods_sync = False
-        resp = requests.post(f'https://{FACTORIO_ZONE_ENDPOINT}/api/mod/toggle',
-                             data={
-                                 'visitSecret': self.visit_secret,
-                                 'modId': mod_id,
-                                 'enabled': enabled
-                             })
+        resp = requests.post(
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/mod/toggle',
+            data={
+                'visitSecret': self.visit_secret,
+                'modId': mod_id,
+                'enabled': enabled
+            })
         if not resp.ok:
             self.mods_sync = True
             raise Exception('Error in toggling mod: {resp.text}')
@@ -164,11 +166,12 @@ class FZClient:
 
     async def delete_mod(self, mod_id: int):
         self.mods_sync = False
-        resp = requests.post(f'https://{FACTORIO_ZONE_ENDPOINT}/api/mod/delete',
-                             data={
-                                 'visitSecret': self.visit_secret,
-                                 'modId': mod_id
-                             })
+        resp = requests.post(
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/mod/delete',
+            data={
+                'visitSecret': self.visit_secret,
+                'modId': mod_id
+            })
         if not resp.ok:
             self.mods_sync = True
             raise Exception(f'Error in deleting mod: {resp.text}')
@@ -207,11 +210,12 @@ class FZClient:
     async def delete_save_slot(self, slot: str):
         self.saves_sync = False
         resp = requests.post(
-            f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/delete', {
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/delete',
+            data={
                 'visitSecret': self.visit_secret,
                 'save': slot
             })
-        if not resp.ok:
+        if resp.status_code != 200:
             self.saves_sync = True
             raise Exception(f'Error deleting save: {resp.text}')
         await self.wait_sync()
@@ -219,18 +223,18 @@ class FZClient:
     async def download_save_slot(self, slot: str, file_path: str, cb: Callable):
         self.saves_sync = False
         with requests.post(
-                f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/download',
+                url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/download',
                 data={
                     'visitSecret': self.visit_secret,
                     'save': slot
                 },
                 stream=True
-        ) as response:
-            if not response.ok:
+        ) as resp:
+            if resp.status_code != 200:
                 self.saves_sync = True
-                raise Exception(f'Error downloading save: {response.text}')
+                raise Exception(f'Error downloading save: {resp.text}')
             with open(file_path, 'wb') as file:
-                for chunk in response.iter_content(chunk_size=8192):
+                for chunk in resp.iter_content(chunk_size=8192):
                     if chunk:
                         file.write(chunk)
                         cb(file.tell())
@@ -250,7 +254,7 @@ class FZClient:
         monitor = MultipartEncoderMonitor(encoder, cb)
         self.saves_sync = False
         resp = requests.post(
-            f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/upload',
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/save/upload',
             headers={'content-type': monitor.content_type},
             data=monitor
         )
@@ -262,24 +266,26 @@ class FZClient:
     # ------ INSTANCE APIs --------------------------------------------------------------
     def send_command(self, command):
         resp = requests.post(
-            f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/console', {
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/console',
+            data={
                 'visitSecret': self.visit_secret,
                 'launchId': self.launch_id,
                 'input': command
             })
-        if not resp.ok:
+        if resp.status_code != 200:
             raise Exception(f'Error sending console command: {resp.text}')
 
     async def start_instance(self, region, version, save):
         await aprint('Starting instance...')
         resp = requests.post(
-            f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/start', {
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/start',
+            data={
                 'visitSecret': self.visit_secret,
                 'region': region,
                 'version': version,
                 'save': save
             })
-        if not resp.ok:
+        if resp.status_code != 200:
             raise Exception(f'Error starting instance: {resp.text}')
         self.launch_id = resp.json()['launchId']
         while not self.running:
@@ -288,11 +294,14 @@ class FZClient:
     async def stop_instance(self):
         await aprint('Stopping instance...')
         resp = requests.post(
-            f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/stop', {
+            url=f'https://{FACTORIO_ZONE_ENDPOINT}/api/instance/stop',
+            data={
                 'visitSecret': self.visit_secret,
                 'launchId': self.launch_id,
-            })
-        if not resp.ok:
+            },
+            timeout=3600
+        )
+        if resp.status_code != 200:
             raise Exception(f'Error stopping instance: {resp.text}')
         while self.running:
             await asyncio.sleep(1)
