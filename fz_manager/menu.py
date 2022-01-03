@@ -1,7 +1,27 @@
 from typing import Callable, Optional
+from inspect import iscoroutinefunction
 import questionary
-from utils import Term
-from questionary import Choice
+from prompt_toolkit.history import History
+from prompt_toolkit.layout import Container
+from prompt_toolkit.output import ColorDepth
+from questionary import Choice, Question
+
+
+def __inject__(question: Question, titlebar: Container, erase_when_done: bool):
+    question.application.full_screen = True
+    question.application.refresh_interval = 1
+    question.application._color_depth = ColorDepth.DEPTH_24_BIT
+    question.application.erase_when_done = erase_when_done
+    if titlebar:
+        question.application.layout.container.get_children().insert(0, titlebar)
+
+
+# noinspection PyProtectedMember
+async def load_last_answer(question):
+    buffer = question.application.current_buffer
+    buffer.load_history_if_not_yet_loaded()
+    await buffer._load_history_task
+    buffer.history_backward()
 
 
 class MenuEntry:
@@ -23,34 +43,29 @@ class ActionMenu:
     def __init__(self,
                  message: str,
                  entries: list[MenuEntry],
-                 clear_screen: bool = False,
-                 header: str = None
-                 ):
+                 titlebar: Container = None,
+                 clear_screen: bool = False):
         self.message = message
         self.entries = entries
-        self.cls = clear_screen
-        self.header = header
-
-    async def show(self) -> MenuEntry | None:
-        if self.cls:
-            Term.cls()
-        if self.header:
-            print(self.header)
-
-        choices = [Choice(e.name, e) for e in self.entries if e.condition()]
-        if not len(choices):
-            return None
-        choice = await questionary.select(
+        self.choices = [Choice(e.name, e) for e in self.entries if e.condition()]
+        self.question = questionary.select(
             self.message,
-            choices,
+            self.choices,
             qmark='',
             instruction=' '
-        ).ask_async(patch_stdout=True)
+        )
+        __inject__(self.question, titlebar, clear_screen)
 
-        if choice is None:
+    async def show(self) -> MenuEntry | None:
+        if not len(self.choices):
             return None
-
-        choice.callback and await choice.callback()
+        if (choice := await self.question.ask_async(patch_stdout=True)) is None:
+            return None
+        if choice.callback:
+            if iscoroutinefunction(choice.callback):
+                await choice.callback()
+            else:
+                choice.callback()
         return choice
 
 
@@ -59,69 +74,54 @@ class SelectMenu:
                  message: str,
                  entries: list[MenuEntry],
                  default: (int | str) = None,
-                 clear_screen: bool = False,
-                 header: str = None
-                 ):
+                 titlebar: Container = None,
+                 clear_screen: bool = False):
         self.message = message
         self.entries = entries
-        self.cls = clear_screen
         self.default = default
-        self.header = header
-
-    async def show(self) -> (MenuEntry | None):
-        if self.cls:
-            Term.cls()
-        if self.header:
-            print(self.header)
-        choices: list[Choice] = [Choice(e.name, e) for e in self.entries if e.condition()]
-        if not len(choices):
-            return None
+        self.choices: list[Choice] = [Choice(e.name, e) for e in self.entries if e.condition()]
         default = None
         if self.default is not None:
-            for c in choices:
+            for c in self.choices:
                 if c.value.ext_index == self.default:
                     default = c
                     break
-
-        return await questionary.select(
+        self.question = questionary.select(
             message=self.message,
-            choices=choices,
+            choices=self.choices,
             qmark='',
             instruction=' ',
             default=default
-        ).ask_async(patch_stdout=True)
+        )
+        __inject__(self.question, titlebar, clear_screen)
+
+    async def show(self) -> (MenuEntry | None):
+        if not len(self.choices):
+            return None
+        return await self.question.ask_async(patch_stdout=True)
 
 
-class MultiSelectMenu:
+class CheckboxMenu:
     def __init__(self,
                  message: str,
                  entries: list[MenuEntry],
-                 clear_screen: bool = False,
-                 header: str = None):
+                 titlebar: Container = None,
+                 clear_screen: bool = False):
         self.message = message
         self.entries = entries
-        self.cls = clear_screen
-        self.header = header
+        self.choices = [Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()]
+        self.question = questionary.checkbox(
+            message=self.message,
+            choices=self.choices,
+            qmark=''
+        )
+        __inject__(self.question, titlebar, clear_screen)
 
     async def show(self) -> (tuple[list[MenuEntry], list[MenuEntry], list[MenuEntry]] | tuple[None, None, None]):
-        if self.cls:
-            Term.cls()
-        if self.header:
-            print(self.header)
-
-        choices = [Choice(e.name, e, checked=e.pre_selected) for e in self.entries if e.condition()]
-        if not len(choices):
+        if not len(self.choices):
             return None, None, None
-
-        choice = await questionary.checkbox(
-            message=self.message,
-            choices=choices,
-            qmark=''
-        ).ask_async(patch_stdout=True)
-
-        if choice is None:
+        if (choice := await self.question.ask_async(patch_stdout=True)) is None:
             return None, None, None
-
         selected: list[MenuEntry] = choice
         added: list[MenuEntry] = []
         removed: list[MenuEntry] = []
@@ -140,44 +140,41 @@ class PathMenu:
                  default: str = '',
                  only_directories: bool = False,
                  validator: Optional[Callable[[str], bool]] = lambda p: True,
+                 titlebar: Container = None,
                  clear_screen: bool = False,
-                 header: str = None):
+                 load_last_value: bool = False,
+                 history: History = None):
         self.message = message
-        self.cls = clear_screen
         self.default = default
         self.only_dirs = only_directories
         self.validator = validator
-        self.header = header
-
-    async def show(self) -> str:
-        if self.cls:
-            Term.cls()
-        if self.header:
-            print(self.header)
-        return await questionary.path(
+        self.load_last_value = load_last_value
+        self.question = questionary.path(
             message=self.message,
             default=self.default,
             qmark='',
             only_directories=self.only_dirs,
-            validate=self.validator
-        ).ask_async(patch_stdout=True)
+            validate=self.validator,
+            history=history
+        )
+        __inject__(self.question, titlebar, clear_screen)
+
+    async def show(self) -> str:
+        if self.load_last_value:
+            await load_last_answer(self.question)
+        return await self.question.ask_async(patch_stdout=True)
 
 
 class AlertMenu:
     def __init__(self,
                  message,
-                 clear_screen: bool = False,
-                 header: str = None):
+                 titlebar: Container = None,
+                 clear_screen: bool = False):
         self.message = message
-        self.cls = clear_screen
-        self.header = header
+        self.menu = ActionMenu(self.message, [MenuEntry('Back')], titlebar=titlebar, clear_screen=clear_screen)
 
     async def show(self):
-        if self.cls:
-            Term.cls()
-        if self.header:
-            print(self.header)
-        return await ActionMenu(self.message, [MenuEntry('Back')], 'Back').show()
+        return await self.menu.show()
 
 
 class InputMenu:
@@ -185,22 +182,24 @@ class InputMenu:
                  message: str,
                  hint: str = None,
                  validator: Optional[Callable[[str], bool]] = lambda p: True,
+                 titlebar: Container = None,
                  clear_screen: bool = False,
-                 header: str = None):
+                 load_last_value: bool = False,
+                 history: History = None):
         self.message = message
         self.hint = hint if hint else ''
         self.validator = validator
-        self.cls = clear_screen
-        self.header = header
-
-    async def show(self):
-        if self.cls:
-            Term.cls()
-        if self.header:
-            print(self.header)
-        return await questionary.text(
+        self.load_last_value = load_last_value
+        self.question = questionary.text(
             message=self.message,
             default=self.hint,
             validate=self.validator,
-            qmark=''
-        ).ask_async()
+            qmark='',
+            history=history
+        )
+        __inject__(self.question, titlebar, clear_screen)
+
+    async def show(self):
+        if self.load_last_value:
+            await load_last_answer(self.question)
+        return await self.question.ask_async()
