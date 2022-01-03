@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "FZ-Manager"
 version = "0.1.0"
-description = ""
+description = "Factorio Zone Server Manager"
 authors = ["michelsciortino <michel.sciortino@outlook.com>"]
 repository = "https://github.com/michelsciortino/FZ-Manager"
 
