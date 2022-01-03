@@ -30,10 +30,12 @@ class Main:
             return
         self.client = FZClient(token if not String.isblank(token) else None)
         self.shell = Shell(self.client, self.storage)
+        self.titlebar = titlebar.create_titlebar(self.client)
         asyncio.get_event_loop_policy().get_event_loop().create_task(self.client.connect())
         await self.client.wait_sync()
-        self.titlebar = titlebar.create_titlebar(self.client)
         self.storage.store('userToken', self.client.user_token)
+        if token == '':
+            self.storage.token_history.append_string(self.client.user_token)
         await self.main_menu()
 
     # Main Menu
