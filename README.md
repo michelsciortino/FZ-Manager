@@ -24,3 +24,14 @@ pip install fz-manager
 fz-manager
 ```
 or just `fzm`
+
+## Screenshots
+
+![](assets/1.png?raw=true "Main menu")
+![](assets/2.png?raw=true "Choose region")
+![](assets/3.png?raw=true "Factorio version")
+![](assets/4.png?raw=true "Save slot")
+![](assets/5.png?raw=true "Attached command line")
+![](assets/6.png?raw=true "Mods management")
+![](assets/7.png?raw=true "Mods multiple upload choice")
+![](assets/8.png?raw=true "Mods uploading")
