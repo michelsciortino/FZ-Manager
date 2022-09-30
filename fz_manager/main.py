@@ -67,6 +67,7 @@ class Main:
                 entries=[
                     MenuEntry('Create mod-settings.zip', self.create_mod_settings),
                     MenuEntry('Upload mods', self.upload_mods_menu),
+                    MenuEntry('Upload mods using mod-list.json', self.upload_mods_menu_auto)
                     MenuEntry('Enable/Disable uploaded mods', self.disable_mods_menu),
                     MenuEntry('Delete uploaded mods', self.delete_mods_menu),
                     MenuEntry('Back')
@@ -135,6 +136,53 @@ class Main:
         await AlertMenu(f'{mod_settings_zip_path} created').show()
 
     async def upload_mods_menu(self):
+        mods_folder_path = await PathMenu(
+            'Insert path to mods folder: ',
+            only_directories=True,
+            validator=lambda p: path.exists(p),
+            titlebar=self.titlebar,
+            load_last_value=True,
+            history=self.storage.mods_path_history
+        ).show()
+        if mods_folder_path is None:
+            return
+
+        root, _, filenames = next(walk(mods_folder_path), (None, None, []))
+        zip_files = list(filter(lambda n: n.endswith('.zip'), filenames))
+
+        if len(zip_files) == 0:
+            return await AlertMenu('No mod found in folder').show()
+
+        selected, _, _ = await CheckboxMenu(
+            message='Choose mods to upload',
+            entries=[MenuEntry(f, pre_selected=True) for f in zip_files],
+        ).show()
+
+        if not selected or not len(selected):
+            return
+
+        mods: list[FZClient.Mod] = []
+        for entry in selected:
+            name = entry.name
+            file_path = path.join(root, name)
+            size = path.getsize(file_path)
+            mods.append(FZClient.Mod(name, file_path, size))
+
+        def callback(monitor):
+            progress.update(mod_task, completed=min(monitor.bytes_read, mod.size))
+
+        try:
+            with Progress() as progress:
+                main_task = progress.add_task('Uploading mods', total=len(mods))
+                for mod in mods:
+                    mod_task = progress.add_task(f'Uploading {mod.name}', total=mod.size)
+                    await self.client.upload_mod(mod, callback)
+                    progress.update(main_task, advance=1)
+
+        except BaseException as ex:
+            return await AlertMenu(str(ex) or ex.__class__.__name__).show()
+
+    async def upload_mods_menu_auto(self):
         mods_folder_path = await PathMenu(
             'Insert path to mods folder: ',
             only_directories=True,
