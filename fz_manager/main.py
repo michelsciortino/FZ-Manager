@@ -152,16 +152,28 @@ class Main:
         if len(zip_files) == 0:
             return await AlertMenu('No mod found in folder').show()
 
-        selected, _, _ = await CheckboxMenu(
-            message='Choose mods to upload',
-            entries=[MenuEntry(f, pre_selected=True) for f in zip_files],
-        ).show()
+        with open(f"{mods_folder_path}/mod-list.json", "r") as f:
+            mods = json.load(f)['mods']
+            mods.pop(0)
 
-        if not selected or not len(selected):
-            return
+        new_mods = []
+        for i in mods:
+            if i['enabled']:
+                new_mods.append(i)
+
+        zips, i=[], 0
+        for zip in zip_files:
+            zip = zip.strip('.zip')
+            if len(new_mods) == 0:
+                break
+            if zip == new_mods[i]['name']:
+                zips.append(zip)
+                if len(new_mods) == 1:
+                    break
+                i+=1
 
         mods: list[FZClient.Mod] = []
-        for entry in selected:
+        for entry in zips:
             name = entry.name
             file_path = path.join(root, name)
             size = path.getsize(file_path)
