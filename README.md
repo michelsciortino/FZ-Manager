@@ -7,6 +7,7 @@ It implements all the features of factorio.zone site plus some aggregated ones t
 - Start a new Server, choosing an AWS Region, a Factorio version and a saveslot
 - Attach to a running Server, sending command directly to its terminal interface
 - Upload multiple mods from your filesystem at a once
+- Upload multiple mods from your filesystem at a once using your factorio mod-list.json
 - Generate the mod-setting.zip archive (upload it as a mod)
 - Delete multiple mods at a once
 - Manage your remote saves
